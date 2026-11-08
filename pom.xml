@@ -22,6 +22,17 @@
             <artifactId>hid4java</artifactId>
             <version>0.7.0</version>
         </dependency>
+        <!-- Source: https://mvnrepository.com/artifact/com.sun.jna/platform -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.14.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.14.0</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -37,7 +48,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>com.vaderbridge.Fh6VaderBridge</mainClass>
+                            <mainClass>com.vaderbridge.TriggerHardwareTester</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
