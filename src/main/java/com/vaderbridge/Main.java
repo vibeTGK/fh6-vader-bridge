@@ -16,9 +16,9 @@ public class Main {
         BridgeConfig config = BridgeConfig.fromArgs(args);
 
         System.out.println("============================================================");
-        System.out.println(" Flydigi Vader 4 Pro -> Classic ABS Calibration (500Hz)");
-        System.out.printf(" Режим: ABS [%s, Сила: %d%%, Порог: %.2f]\n",
-                config.absEnabled() ? "ВКЛ" : "ВЫКЛ", config.absPowerPercent(), config.absSlipThreshold());
+        System.out.println(" Flydigi Vader 4 Pro -> SimHub True Wheel Lock Calibration");
+        System.out.printf(" Режим: ABS/WheelLock [%s, Сила: %d%%]\n",
+                config.absEnabled() ? "ВКЛ" : "ВЫКЛ", config.absPowerPercent());
         System.out.println("============================================================");
 
         XInputController controller = new XInputController();
@@ -47,7 +47,7 @@ public class Main {
         try (UdpTelemetryReceiver receiver = new UdpTelemetryReceiver(port)) {
             receiver.start();
             System.out.println("[*] UDP порт: 127.0.0.1:" + port);
-            System.out.println("[*] Разгонись и зажми тормоз в пол до юза:\n");
+            System.out.println("[*] Тест: поворот/легкий снос = ТИШИНА. Реальный клин тормозом = отклик.\n");
 
             long lastPacketTime = System.currentTimeMillis();
             long lastLog = System.currentTimeMillis();
@@ -69,28 +69,31 @@ public class Main {
                 controller.applyFeedback(feedback);
 
                 if (telemetry != null && now - lastLog >= 80) {
+                    float carSpeed = telemetry.speedKmh();
+                    float wheelLinearFL = Math.max(0.0f, telemetry.wheelSpeedFL() * 0.33f * 3.6f);
+                    float wheelLinearFR = Math.max(0.0f, telemetry.wheelSpeedFR() * 0.33f * 3.6f);
                     float brakePct = telemetry.brakePedal() * 100.0f;
-                    float lockFL = Math.max(0.0f, -telemetry.slipRatioFL());
-                    float lockFR = Math.max(0.0f, -telemetry.slipRatioFR());
-                    float lockRL = Math.max(0.0f, -telemetry.slipRatioRL());
-                    float lockRR = Math.max(0.0f, -telemetry.slipRatioRR());
-                    float maxLock = Math.max(Math.max(lockFL, lockFR), Math.max(lockRL, lockRR));
-                    float speed = telemetry.speedKmh();
+
+                    float lockDepth = 0.0f;
+                    if (carSpeed > 10.0f) {
+                        float minWheel = Math.min(wheelLinearFL, wheelLinearFR);
+                        lockDepth = 1.0f - (minWheel / carSpeed);
+                    }
 
                     String status;
                     if (brakePct < 5.0f) {
-                        status = "Тормоз отпущен ";
-                    } else if (maxLock <= config.absSlipThreshold()) {
-                        status = "Чистый зацеп   ";
+                        status = "Тормоз отпущен   ";
+                    } else if (lockDepth < 0.40f) {
+                        status = "Колеса крутятся  ";
                     } else {
-                        status = "ABS СРАБОТАЛ!  ";
+                        status = "КЛИН ТОРМОЗА!    ";
                     }
 
                     int barsL = (int) (feedback.left() / 12.75);
                     String barL = "=".repeat(barsL) + " ".repeat(Math.max(0, 20 - barsL));
 
-                    System.out.printf("\r[Скорость: %5.1f км/ч] | Тормоз: %3.0f%% | Юз: %4.2f (Порог: %4.2f) | %s | L: [%s] %3d",
-                            speed, brakePct, maxLock, config.absSlipThreshold(), status, barL, feedback.left());
+                    System.out.printf("\r[Авто: %5.1f км/ч | Колесо: %5.1f км/ч] | LT: %3.0f%% | Клин: %4.2f | %s | L: [%s] %3d",
+                            carSpeed, Math.min(wheelLinearFL, wheelLinearFR), brakePct, lockDepth, status, barL, feedback.left());
                     System.out.flush();
                     lastLog = now;
                 }
