@@ -12,14 +12,16 @@ import java.io.IOException;
 
 public class Main {
 
+    private static final float TYRE_RADIUS_METERS = 0.33f; // Стандартный радиус колеса спорткара
+
     public static void main(String[] args) {
         BridgeConfig config = BridgeConfig.fromArgs(args);
 
-        System.out.println("============================================================");
-        System.out.println(" Flydigi Vader 4 Pro -> SimHub True Wheel Lock Calibration");
-        System.out.printf(" Режим: ABS/WheelLock [%s, Сила: %d%%]\n",
+        System.out.println("==========================================================================================");
+        System.out.println(" Flydigi Vader 4 Pro -> Телеметрия ABS и физики колес (Аппаратный поток 500 Гц)");
+        System.out.printf(" Режим: ABS [%s, Сила: %d%%] | Помощники игры: ВЫКЛ\n",
                 config.absEnabled() ? "ВКЛ" : "ВЫКЛ", config.absPowerPercent());
-        System.out.println("============================================================");
+        System.out.println("==========================================================================================");
 
         XInputController controller = new XInputController();
         if (!controller.open()) {
@@ -47,7 +49,7 @@ public class Main {
         try (UdpTelemetryReceiver receiver = new UdpTelemetryReceiver(port)) {
             receiver.start();
             System.out.println("[*] UDP порт: 127.0.0.1:" + port);
-            System.out.println("[*] Тест: поворот/легкий снос = ТИШИНА. Реальный клин тормозом = отклик.\n");
+            System.out.println("[*] ЛОГ: Скорость авто, скорость колес, продольный срыв, боковой угол и моторы:\n");
 
             long lastPacketTime = System.currentTimeMillis();
             long lastLog = System.currentTimeMillis();
@@ -70,30 +72,38 @@ public class Main {
 
                 if (telemetry != null && now - lastLog >= 80) {
                     float carSpeed = telemetry.speedKmh();
-                    float wheelLinearFL = Math.max(0.0f, telemetry.wheelSpeedFL() * 0.33f * 3.6f);
-                    float wheelLinearFR = Math.max(0.0f, telemetry.wheelSpeedFR() * 0.33f * 3.6f);
                     float brakePct = telemetry.brakePedal() * 100.0f;
 
-                    float lockDepth = 0.0f;
-                    if (carSpeed > 10.0f) {
-                        float minWheel = Math.min(wheelLinearFL, wheelLinearFR);
-                        lockDepth = 1.0f - (minWheel / carSpeed);
+                    // 1. Линейная скорость передних колес (км/ч)
+                    float wheelSpdFL = Math.max(0.0f, telemetry.wheelSpeedFL() * TYRE_RADIUS_METERS * 3.6f);
+                    float wheelSpdFR = Math.max(0.0f, telemetry.wheelSpeedFR() * TYRE_RADIUS_METERS * 3.6f);
+
+                    // 2. Реальный процент тормозного клина (на сколько медленнее машины крутится колесо)
+                    int lockFL = 0;
+                    int lockFR = 0;
+                    if (carSpeed > 5.0f) {
+                        lockFL = (int) Math.max(0, Math.min(100, (1.0f - (wheelSpdFL / carSpeed)) * 100.0f));
+                        lockFR = (int) Math.max(0, Math.min(100, (1.0f - (wheelSpdFR / carSpeed)) * 100.0f));
                     }
 
-                    String status;
-                    if (brakePct < 5.0f) {
-                        status = "Тормоз отпущен   ";
-                    } else if (lockDepth < 0.40f) {
-                        status = "Колеса крутятся  ";
-                    } else {
-                        status = "КЛИН ТОРМОЗА!    ";
-                    }
+                    // 3. Продольный срыв шин (отрицательный slip ratio)
+                    float slipFL = telemetry.slipRatioFL();
+                    float slipFR = telemetry.slipRatioFR();
 
-                    int barsL = (int) (feedback.left() / 12.75);
-                    String barL = "=".repeat(barsL) + " ".repeat(Math.max(0, 20 - barsL));
+                    // 4. Боковой угол увода (снос передка в радианах -> переводим в градусы)
+                    float angleFL = (float) Math.toDegrees(telemetry.slipAngleFL());
+                    float angleFR = (float) Math.toDegrees(telemetry.slipAngleFR());
 
-                    System.out.printf("\r[Авто: %5.1f км/ч | Колесо: %5.1f км/ч] | LT: %3.0f%% | Клин: %4.2f | %s | L: [%s] %3d",
-                            carSpeed, Math.min(wheelLinearFL, wheelLinearFR), brakePct, lockDepth, status, barL, feedback.left());
+                    // Вывод в одну четкую диагностическую строку
+                    System.out.printf("\r[Авто: %5.1f км/ч | LT: %3.0f%%] | Колеса(FL/FR): %5.1f / %5.1f км/ч | Клин: %3d%% / %3d%% | SlipRatio: %+5.2f / %+5.2f | Снос: %4.1f° | L: %3d | R: %3d",
+                            carSpeed,
+                            brakePct,
+                            wheelSpdFL, wheelSpdFR,
+                            lockFL, lockFR,
+                            slipFL, slipFR,
+                            Math.max(Math.abs(angleFL), Math.abs(angleFR)),
+                            feedback.left(),
+                            feedback.right());
                     System.out.flush();
                     lastLog = now;
                 }
